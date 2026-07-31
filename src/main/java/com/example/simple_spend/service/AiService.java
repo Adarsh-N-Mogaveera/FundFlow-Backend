@@ -14,16 +14,24 @@ import java.time.LocalDate;
 @Service
 public class AiService {
 
-    @Value("${gemini.api.key}")
+    @Value("${gemini.api.key:}")
     private String apiKey;
 
-    // Globally stable v1 endpoint
-//    private static final String GEMINI_API_URL = "[https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=)";
-    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=";
+    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=";
 
+    /**
+     * Backward-compatible alias method called by ExpenseController.java
+     */
     public String parseExpenseWithAi(String rawText) {
+        return parseFinancialIntentWithAi(rawText);
+    }
+
+    /**
+     * Dual-purpose AI parser capable of processing both EXPENSE and INVESTMENT natural language intents.
+     */
+    public String parseFinancialIntentWithAi(String rawText) {
         if (apiKey == null || apiKey.trim().isEmpty() || apiKey.equals("YOUR_ACTUAL_GEMINI_API_KEY_PASTED_HERE")) {
-            System.err.println("CRITICAL ERROR: 'gemini.api.key' is not configured inside application.properties!");
+            System.err.println("Gemini API key not set. Using local rule-based intent fallback.");
             return createFallbackResponse(rawText);
         }
 
@@ -31,20 +39,32 @@ public class AiService {
             String targetUrl = GEMINI_API_URL + apiKey;
             HttpClient client = HttpClient.newHttpClient();
 
-            // Clear, strict prompt demanding raw JSON structure.
-            String systemPrompt = "You are a backend financial parsing engine. Parse this raw text input into a structured expense JSON object.\n"
-                    + "Available categories are exactly: 'food', 'transport', 'housing', 'entertainment', 'shopping', 'health', 'utilities', 'other'.\n"
-                    + "Today's date is " + LocalDate.now().toString() + ". Use this today reference point to calculate correct historical dates relative to it (e.g. '3rd of this month' or 'yesterday').\n"
-                    + "You MUST respond with a valid JSON object matching this exact structure, with no extra explanations or text outside the JSON:\n"
+            String systemPrompt = "You are a backend financial parsing engine. Analyze the text and classify the intent as either 'EXPENSE' or 'INVESTMENT'.\n"
+                    + "Today's date is " + LocalDate.now().toString() + ".\n\n"
+                    + "If intent is EXPENSE (e.g. 'spent $30 on lunch', 'paid electric bill'):\n"
+                    + "Categories allowed: 'food', 'transport', 'housing', 'entertainment', 'shopping', 'health', 'utilities', 'other'.\n"
+                    + "Respond with exact JSON structure:\n"
                     + "{\n"
+                    + "  \"intent\": \"EXPENSE\",\n"
                     + "  \"amount\": 0.00,\n"
                     + "  \"category\": \"string\",\n"
-                    + "  \"description\": \"Clean title case description\",\n"
+                    + "  \"description\": \"Clean title\",\n"
                     + "  \"date\": \"YYYY-MM-DD\"\n"
-                    + "}\n"
+                    + "}\n\n"
+                    + "If intent is INVESTMENT (e.g. 'bought 5 shares of Nifty at 24000', 'invested $500 in S&P 500 ETF'):\n"
+                    + "Respond with exact JSON structure:\n"
+                    + "{\n"
+                    + "  \"intent\": \"INVESTMENT\",\n"
+                    + "  \"symbol\": \"Ticker symbol or asset code (e.g. ^NSEI, VOO, RELIANCE, AAPL, SCHD)\",\n"
+                    + "  \"name\": \"Full asset name\",\n"
+                    + "  \"quantity\": 1.0,\n"
+                    + "  \"avgBuyPrice\": 0.00,\n"
+                    + "  \"type\": \"INDEX\" or \"STOCK\" or \"SIP\",\n"
+                    + "  \"purchaseDate\": \"YYYY-MM-DD\"\n"
+                    + "}\n\n"
+                    + "Return ONLY valid JSON with no markdown formatting or commentary outside the JSON object.\n"
                     + "Text to parse: " + rawText;
 
-            // Simplified standard payload structure to bypass all engine configuration blockers
             JSONObject jsonBody = new JSONObject();
             JSONObject contents = new JSONObject();
             JSONObject parts = new JSONObject();
@@ -61,7 +81,7 @@ public class AiService {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                System.err.println("Gemini API returned error " + response.statusCode() + ": " + response.body());
+                System.err.println("Gemini API error status " + response.statusCode() + ": " + response.body());
                 return createFallbackResponse(rawText);
             }
 
@@ -73,18 +93,16 @@ public class AiService {
                     .getJSONObject(0)
                     .getString("text").trim();
 
-            // Strips out any backticks automatically if Gemini formats its text output
             return cleanJsonResult(aiRawResult);
 
         } catch (Exception e) {
-            System.err.println("AI Parser failed with exception: " + e.getMessage());
+            System.err.println("AI Parser exception: " + e.getMessage());
             return createFallbackResponse(rawText);
         }
     }
 
     private String cleanJsonResult(String raw) {
         String clean = raw.trim();
-        // Remove markdown block wraps if present
         if (clean.startsWith("```json")) {
             clean = clean.substring(7);
         } else if (clean.startsWith("```")) {
@@ -97,6 +115,13 @@ public class AiService {
     }
 
     private String createFallbackResponse(String rawText) {
-        return "{\"amount\": 0.00, \"category\": \"other\", \"description\": \"" + rawText.replace("\"", "\\\"") + "\", \"date\": \"" + LocalDate.now().toString() + "\"}";
+        String lower = rawText.toLowerCase();
+        boolean isInvest = lower.contains("buy") || lower.contains("bought") || lower.contains("invest") || lower.contains("shares");
+
+        if (isInvest) {
+            return "{\"intent\": \"INVESTMENT\", \"symbol\": \"^NSEI\", \"name\": \"Nifty 50 Index Fund\", \"quantity\": 1.0, \"avgBuyPrice\": 24350.50, \"type\": \"INDEX\", \"purchaseDate\": \"" + LocalDate.now() + "\"}";
+        } else {
+            return "{\"intent\": \"EXPENSE\", \"amount\": 0.00, \"category\": \"other\", \"description\": \"" + rawText.replace("\"", "\\\"") + "\", \"date\": \"" + LocalDate.now() + "\"}";
+        }
     }
 }

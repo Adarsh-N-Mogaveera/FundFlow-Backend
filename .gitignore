@@ -32,12 +32,11 @@ build/
 ### VS Code ###
 .vscode/
 
-**/src/main/resources/application.properties
-**/src/main/resources/application*.properties
-
 # OS files
 .DS_Store
 Thumbs.db
 
 # Crash logs
 *.log
+
+.env
