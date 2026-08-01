@@ -9,8 +9,13 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins("https://fund-flow-frontend-zeta.vercel.app/") // Paste your actual Vercel domain here
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS");
-
+                .allowedOrigins(
+                        "https://fund-flow-frontend-zeta.vercel.app",
+                        "https://fund-flow-frontend-zeta.vercel.app/"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .allowCredentials(true);
     }
 }
+

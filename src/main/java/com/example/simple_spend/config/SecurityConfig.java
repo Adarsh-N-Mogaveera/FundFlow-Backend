@@ -17,9 +17,11 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // Disable CSRF for REST APIs
+                .cors(cors -> cors.configure(http))
+                .csrf(csrf -> csrf.disable()) // Disable CSRF for stateless REST APIs
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll() // Allow testing controllers before locking down paths
+                        .requestMatchers("/api/auth/**").permitAll() // Allow public login/signup
+                        .anyRequest().authenticated()
                 );
         return http.build();
     }
